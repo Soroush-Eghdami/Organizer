@@ -129,7 +129,7 @@ class OrganizerGUI(ctk.CTk):
         ctk.CTkButton(bulk, text="Clear Rejected", width=120, fg_color="#6b7280", command=self.clear_rejected).pack(side="right", padx=6)
 
         # Main tabs
-        self.tabs = ctk.CTkTabView(self)
+        self.tabs = ctk.CTkTabview(self)
         self.tabs.pack(fill="both", expand=True, padx=12, pady=6)
         self.tabs.add("Pending")
         self.tabs.add("Approved")
