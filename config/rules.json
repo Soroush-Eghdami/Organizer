@@ -1,0 +1,9 @@
+{
+    "default_destination": "Unsorted",
+    "rules": [
+        {"match": {"extension": [".jpg", ".jpeg", ".png"]}, "destination": "Photos"},
+        {"match": {"extension": [".mp4", ".mkv"]}, "destination": "Videos"},
+        {"match": {"extension": [".pdf", ".docx", ".txt"]}, "destination": "Documents"},
+        {"match": {"extension": [".mp3", ".flac"]}, "destination": "Music"}
+    ]
+}
