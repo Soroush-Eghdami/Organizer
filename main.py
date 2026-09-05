@@ -37,7 +37,7 @@ def _launch_gui(argv: list[str]) -> int:
     except ImportError as e:
         print(f"GUI requires customtkinter: pip install customtkinter\n{e}", file=sys.stderr)
         return 1
-    app = OrganizerGUI(watch_path=args.watch, organize_root=args.organize, db_path=args.db or "queue.db", rules_path=args.rules)
+    app = OrganizerGUI(watch_path=args.watch, organize_root=args.organize, db_path=args.db, rules_path=args.rules)
     app.mainloop()
     return 0
 
