@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 CLI_SUBCOMMANDS = {"watch", "list", "review", "move", "clear"}
+_VALUE_FLAGS = {"--watch", "--organize", "--db", "--rules", "--limit"}
 
 
 def _should_launch_gui(argv: list[str]) -> bool:
@@ -16,8 +17,14 @@ def _should_launch_gui(argv: list[str]) -> bool:
         return True
     if "--cli" in argv:
         return False
-    for tok in argv:
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in _VALUE_FLAGS:
+            i += 2  # flag + its value
+            continue
         if tok.startswith("-"):
+            i += 1
             continue
         return tok not in CLI_SUBCOMMANDS
     return True
