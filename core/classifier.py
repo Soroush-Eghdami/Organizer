@@ -109,6 +109,121 @@ class Classifier:
         self._load_rules()
 
     # ------------------------------------------------------------------ #
+    # Rule editing (used by GUI)
+    # ------------------------------------------------------------------ #
+    def get_rules(self) -> list[dict]:
+        """Return a deep copy of raw rules for display/editing."""
+        import copy
+        return copy.deepcopy(self._raw_rules)
+
+    def get_default_destination(self) -> str:
+        return self.default_destination
+
+    def set_default_destination(self, dest: str, autosave: bool = True) -> None:
+        dest = dest.strip()
+        if not dest:
+            raise ValueError("default_destination cannot be empty")
+        self.default_destination = dest
+        # Update explicit fallback so save persists it
+        self._explicit_fallback = dest
+        if autosave:
+            self.save()
+
+    def _normalize_extensions(self, exts: list[str] | str) -> list[str]:
+        if isinstance(exts, str):
+            # comma or space separated
+            exts = [e.strip() for e in exts.replace(",", " ").split()]
+        out = []
+        seen = set()
+        for e in exts:
+            if not isinstance(e, str):
+                continue
+            e = e.strip().lower()
+            if not e:
+                continue
+            if not e.startswith("."):
+                e = "." + e
+            if e not in seen:
+                seen.add(e)
+                out.append(e)
+        return out
+
+    def add_rule(self, extensions: list[str] | str, destination: str, autosave: bool = True) -> None:
+        exts = self._normalize_extensions(extensions)
+        dest = destination.strip()
+        if not exts:
+            raise ValueError("Provide at least one extension (e.g. .jpg, .pdf)")
+        if not dest:
+            raise ValueError("Destination cannot be empty")
+        # Append as new rule
+        self._raw_rules.append({"match": {"extension": exts}, "destination": dest})
+        self._load_rules_from_memory()
+        if autosave:
+            self.save()
+
+    def update_rule(self, index: int, extensions: list[str] | str, destination: str, autosave: bool = True) -> None:
+        if not 0 <= index < len(self._raw_rules):
+            raise IndexError("rule index out of range")
+        exts = self._normalize_extensions(extensions)
+        dest = destination.strip()
+        if not exts:
+            raise ValueError("Provide at least one extension")
+        if not dest:
+            raise ValueError("Destination cannot be empty")
+        self._raw_rules[index] = {"match": {"extension": exts}, "destination": dest}
+        self._load_rules_from_memory()
+        if autosave:
+            self.save()
+
+    def delete_rule(self, index: int, autosave: bool = True) -> None:
+        if not 0 <= index < len(self._raw_rules):
+            raise IndexError("rule index out of range")
+        del self._raw_rules[index]
+        self._load_rules_from_memory()
+        if autosave:
+            self.save()
+
+    def _load_rules_from_memory(self) -> None:
+        """Rebuild _ext_map from current _raw_rules + default_destination without re-reading file."""
+        ext_map: Dict[str, str] = {}
+        for rule in self._raw_rules:
+            if not isinstance(rule, dict):
+                continue
+            dest = rule.get("destination")
+            match = rule.get("match", {})
+            exts = match.get("extension") if isinstance(match, dict) else None
+            if not dest or not exts:
+                continue
+            if isinstance(exts, str):
+                exts = [exts]
+            for ext in exts:
+                if not isinstance(ext, str):
+                    continue
+                norm = ext.strip().lower()
+                if not norm.startswith("."):
+                    norm = "." + norm
+                if norm not in ext_map:
+                    ext_map[norm] = str(dest)
+        self._ext_map = ext_map
+
+    def save(self) -> None:
+        """Persist current rules + default_destination to rules_path."""
+        data = {
+            "default_destination": self.default_destination,
+            "rules": self._raw_rules,
+        }
+        # Ensure parent exists
+        Path(self.rules_path).parent.mkdir(parents=True, exist_ok=True)
+        # Atomic write via temp file
+        tmp = Path(self.rules_path).with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+            f.write("\n")
+        tmp.replace(self.rules_path)
+        # Rebuild to ensure consistency
+        self._load_rules()
+
+    # ------------------------------------------------------------------ #
     # Classification
     # ------------------------------------------------------------------ #
     def classify(self, event: FileEvent) -> Optional[ProposedAction]:

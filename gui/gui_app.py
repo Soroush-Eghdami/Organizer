@@ -134,6 +134,7 @@ class OrganizerGUI(ctk.CTk):
         self.tabs.add("Pending")
         self.tabs.add("Approved")
         self.tabs.add("History")
+        self.tabs.add("Rules")
         self.tabs.add("Logs")
 
         # Pending scroll
@@ -147,6 +148,9 @@ class OrganizerGUI(ctk.CTk):
         # History: moved + rejected
         self.history_scroll = ctk.CTkScrollableFrame(self.tabs.tab("History"), label_text="Moved / Rejected (newest first)")
         self.history_scroll.pack(fill="both", expand=True, padx=6, pady=6)
+
+        # Rules tab
+        self._build_rules_tab()
 
         # Logs
         self.log_text = ctk.CTkTextbox(self.tabs.tab("Logs"), wrap="word", height=200)
@@ -163,6 +167,180 @@ class OrganizerGUI(ctk.CTk):
 
         top.grid_columnconfigure(1, weight=1)
         top.grid_columnconfigure(4, weight=1)
+
+    def _build_rules_tab(self) -> None:
+        tab = self.tabs.tab("Rules")
+
+        # Top info
+        ctk.CTkLabel(tab, text="Edit how files are classified. Changes save instantly to config/rules.json", text_color="#9ca3af", font=("Segoe UI", 11)).pack(anchor="w", padx=8, pady=(8, 4))
+
+        # Default destination
+        default_frame = ctk.CTkFrame(tab)
+        default_frame.pack(fill="x", padx=8, pady=6)
+        ctk.CTkLabel(default_frame, text="Default folder (Unsorted):", width=180).pack(side="left", padx=6, pady=8)
+        self._default_dest_entry = ctk.CTkEntry(default_frame, placeholder_text="Unsorted", width=200)
+        self._default_dest_entry.pack(side="left", padx=6, pady=8)
+        try:
+            self._default_dest_entry.insert(0, self.classifier.get_default_destination())
+        except Exception:
+            pass
+        ctk.CTkButton(default_frame, text="Save Default", width=110, fg_color="#2563eb", command=self._save_default_dest).pack(side="left", padx=6, pady=8)
+        ctk.CTkButton(default_frame, text="↻ Reload", width=80, fg_color="#4b5563", command=self._reload_rules).pack(side="left", padx=6, pady=8)
+        ctk.CTkLabel(default_frame, text="for .exe/.zip/unknown", text_color="#6b7280", font=("Segoe UI", 10)).pack(side="left", padx=6)
+
+        # Add new rule
+        add_frame = ctk.CTkFrame(tab)
+        add_frame.pack(fill="x", padx=8, pady=6)
+        ctk.CTkLabel(add_frame, text="Add rule:", font=("Segoe UI", 12, "bold")).pack(side="left", padx=8, pady=8)
+        self._new_ext_entry = ctk.CTkEntry(add_frame, placeholder_text="Extensions: .jpg, .jpeg, .png", width=280)
+        self._new_ext_entry.pack(side="left", padx=6, pady=8)
+        self._new_dest_entry = ctk.CTkEntry(add_frame, placeholder_text="Destination: Photos", width=180)
+        self._new_dest_entry.pack(side="left", padx=6, pady=8)
+        ctk.CTkButton(add_frame, text="+ Add", width=80, fg_color="#16a34a", hover_color="#15803d", command=self._add_new_rule).pack(side="left", padx=6, pady=8)
+
+        # Rules list
+        self.rules_scroll = ctk.CTkScrollableFrame(tab, label_text="Current rules — click Edit or Delete")
+        self.rules_scroll.pack(fill="both", expand=True, padx=8, pady=6)
+
+    def _refresh_rules(self) -> None:
+        # Call after any rule change or tab switch
+        try:
+            # Keep entry in sync if file was edited externally
+            cur_default = self.classifier.get_default_destination()
+            if self._default_dest_entry.get().strip() != cur_default:
+                self._default_dest_entry.delete(0, "end")
+                self._default_dest_entry.insert(0, cur_default)
+        except Exception:
+            pass
+        self._clear_scroll(self.rules_scroll)
+        try:
+            rules = self.classifier.get_rules()
+        except Exception as e:
+            ctk.CTkLabel(self.rules_scroll, text=f"Failed to load rules: {e}", text_color="#f87171").pack(pady=20)
+            return
+        if not rules:
+            ctk.CTkLabel(self.rules_scroll, text="No rules yet. Add one above.", text_color="#9ca3af").pack(pady=20)
+            return
+        for idx, rule in enumerate(rules):
+            exts = rule.get("match", {}).get("extension", [])
+            if isinstance(exts, str):
+                exts = [exts]
+            dest = rule.get("destination", "")
+            ext_str = ", ".join(exts)
+
+            row = ctk.CTkFrame(self.rules_scroll)
+            row.pack(fill="x", padx=6, pady=4)
+
+            # Icon + text
+            ctk.CTkLabel(row, text=f"{idx+1}.", width=30, font=("Segoe UI", 11, "bold")).pack(side="left", padx=6, pady=8)
+            ctk.CTkLabel(row, text=ext_str, font=("Segoe UI", 11), text_color="#e5e7eb", width=300, anchor="w").pack(side="left", padx=6, pady=8)
+            ctk.CTkLabel(row, text="→", text_color="#9ca3af", width=20).pack(side="left", padx=2)
+            ctk.CTkLabel(row, text=dest, font=("Segoe UI", 11, "bold"), text_color="#60a5fa", width=160, anchor="w").pack(side="left", padx=6, pady=8)
+
+            # spacer
+            ctk.CTkLabel(row, text="").pack(side="left", expand=True)
+
+            ctk.CTkButton(row, text="Edit", width=60, height=26, fg_color="#4b5563", hover_color="#374151", command=lambda i=idx: self._edit_rule(i)).pack(side="right", padx=4, pady=4)
+            ctk.CTkButton(row, text="Delete", width=70, height=26, fg_color="#dc2626", hover_color="#b91c1c", command=lambda i=idx: self._delete_rule(i)).pack(side="right", padx=4, pady=4)
+
+    def _save_default_dest(self) -> None:
+        new_val = self._default_dest_entry.get().strip()
+        if not new_val:
+            messagebox.showwarning("Rules", "Default destination cannot be empty.")
+            return
+        try:
+            self.classifier.set_default_destination(new_val, autosave=True)
+            self._toast(f"Default → {new_val}")
+            self._refresh_rules()
+            self._refresh_all()
+        except Exception as e:
+            messagebox.showerror("Rules", str(e))
+
+    def _reload_rules(self) -> None:
+        try:
+            self.classifier.reload()
+            self._toast("Reloaded from config/rules.json")
+            self._refresh_rules()
+            self._refresh_all()
+        except Exception as e:
+            messagebox.showerror("Reload", str(e))
+
+    def _add_new_rule(self) -> None:
+        exts = self._new_ext_entry.get().strip()
+        dest = self._new_dest_entry.get().strip()
+        if not exts or not dest:
+            messagebox.showwarning("Rules", "Fill both extensions and destination.\nExample: .psd, .ai  →  Designs")
+            return
+        try:
+            self.classifier.add_rule(exts, dest, autosave=True)
+            self._new_ext_entry.delete(0, "end")
+            self._new_dest_entry.delete(0, "end")
+            self._toast(f"Added {dest}")
+            self._refresh_rules()
+            self._refresh_all()
+        except Exception as e:
+            messagebox.showerror("Add rule", str(e))
+
+    def _delete_rule(self, idx: int) -> None:
+        try:
+            rules = self.classifier.get_rules()
+            rule = rules[idx]
+            exts = ", ".join(rule.get("match", {}).get("extension", []))
+            dest = rule.get("destination", "")
+            if not messagebox.askyesno("Delete rule", f"Delete rule?\n\n{exts} → {dest}"):
+                return
+            self.classifier.delete_rule(idx, autosave=True)
+            self._toast(f"Deleted {dest}")
+            self._refresh_rules()
+            self._refresh_all()
+        except Exception as e:
+            messagebox.showerror("Delete", str(e))
+
+    def _edit_rule(self, idx: int) -> None:
+        try:
+            rules = self.classifier.get_rules()
+            rule = rules[idx]
+            exts = ", ".join(rule.get("match", {}).get("extension", []))
+            dest = rule.get("destination", "")
+        except Exception as e:
+            messagebox.showerror("Edit", str(e))
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"Edit rule #{idx+1}")
+        dialog.geometry("520x200")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="Extensions (comma separated):", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=16, pady=(16, 4))
+        ext_entry = ctk.CTkEntry(dialog, width=480)
+        ext_entry.pack(padx=16, pady=4, fill="x")
+        ext_entry.insert(0, exts)
+
+        ctk.CTkLabel(dialog, text="Destination folder:", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=16, pady=(8, 4))
+        dest_entry = ctk.CTkEntry(dialog, width=480)
+        dest_entry.pack(padx=16, pady=4, fill="x")
+        dest_entry.insert(0, dest)
+
+        def save():
+            new_exts = ext_entry.get().strip()
+            new_dest = dest_entry.get().strip()
+            if not new_exts or not new_dest:
+                messagebox.showwarning("Edit", "Both fields required.", parent=dialog)
+                return
+            try:
+                self.classifier.update_rule(idx, new_exts, new_dest, autosave=True)
+                dialog.destroy()
+                self._toast(f"Updated → {new_dest}")
+                self._refresh_rules()
+                self._refresh_all()
+            except Exception as e:
+                messagebox.showerror("Edit", str(e), parent=dialog)
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=16, pady=12)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4b5563", command=dialog.destroy).pack(side="right", padx=6)
+        ctk.CTkButton(btn_frame, text="Save", width=100, fg_color="#2563eb", command=save).pack(side="right", padx=6)
 
     # ------------------------------------------------------------------ #
     # Watch controls
@@ -458,6 +636,16 @@ class OrganizerGUI(ctk.CTk):
                     self._add_row(self.history_scroll, a)
         except Exception:
             logger.exception("refresh history failed")
+
+        # Rules (keep in sync, but don't reload from disk every second — just repaint)
+        try:
+            # Only repaint if Rules tab exists (during init it does)
+            if hasattr(self, "rules_scroll"):
+                # Avoid flicker: only rebuild if tab is visible or counts changed?
+                # For simplicity, rebuild each refresh — cheap for <20 rules
+                self._refresh_rules()
+        except Exception:
+            logger.debug("refresh rules failed", exc_info=True)
 
         # Logs tail
         try:
