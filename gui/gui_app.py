@@ -43,8 +43,9 @@ class OrganizerGUI(ctk.CTk):
         self.db_path, self.rules_path = db_path, rules_path
         self.qm = QueueManager(db_path=db_path)
         self.classifier = Classifier(rules_path=rules_path, queue_manager=self.qm)
-        self.organize_root = str(Path(organize_root).resolve()) if organize_root else str((Path.cwd() / "organized").resolve())
-        self.mover = Mover(organize_root=self.organize_root, queue_manager=self.qm)
+        # Keep organize empty at first — show only placeholder like Watch
+        self.organize_root = str(Path(organize_root).resolve()) if organize_root else ""
+        self.mover = Mover(organize_root=self.organize_root or str(Path.home() / "Organized"), queue_manager=self.qm) if self.organize_root else None
         self.watcher: FolderWatcher | None = None
         self._debounce = debounce
         self._poll_after_id: str | None = None
@@ -53,7 +54,8 @@ class OrganizerGUI(ctk.CTk):
         self._refresh_all()
         if watch_path and Path(watch_path).is_dir():
             self._watch_entry.delete(0, "end"); self._watch_entry.insert(0, watch_path)
-            self._organize_entry.delete(0, "end"); self._organize_entry.insert(0, self.organize_root)
+            if self.organize_root:
+                self._organize_entry.delete(0, "end"); self._organize_entry.insert(0, self.organize_root)
             self.start_watching()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -68,7 +70,8 @@ class OrganizerGUI(ctk.CTk):
         ctk.CTkLabel(top, text="Organize:", width=60).grid(row=0, column=3, padx=6, pady=6, sticky="w")
         self._organize_entry = ctk.CTkEntry(top, placeholder_text="D:\\Organized", width=340)
         self._organize_entry.grid(row=0, column=4, padx=6, pady=6, sticky="ew")
-        self._organize_entry.insert(0, self.organize_root)
+        if self.organize_root:
+            self._organize_entry.insert(0, self.organize_root)
         ctk.CTkButton(top, text="Browse", width=80, command=self._browse_organize).grid(row=0, column=5, padx=6)
         ctk.CTkLabel(top, text="Options:", width=60).grid(row=1, column=0, padx=6, pady=6, sticky="w")
         self._recursive_var = ctk.BooleanVar(value=False)
@@ -295,9 +298,11 @@ class OrganizerGUI(ctk.CTk):
             messagebox.showwarning("Watch", "Please select a watch folder." if not wp else f"Folder not found:\n{wp}")
             return
         org = self._organize_entry.get().strip()
-        if org:
-            self.organize_root = org
-            self.mover = Mover(organize_root=org, queue_manager=self.qm)
+        if not org:
+            messagebox.showwarning("Organize", "Please choose an Organize folder where sorted files will go.")
+            return
+        self.organize_root = org
+        self.mover = Mover(organize_root=org, queue_manager=self.qm)
         self._scan_now(wp)
         if self.watcher and self.watcher.is_running():
             messagebox.showinfo("Watch", "Already watching.")
@@ -354,6 +359,13 @@ class OrganizerGUI(ctk.CTk):
         self._toast(f"Cleared {n} rejected"); self._refresh_all()
 
     def move_approved(self) -> None:
+        org = self._organize_entry.get().strip()
+        if not org:
+            messagebox.showwarning("Organize", "Please choose an Organize folder first.")
+            return
+        if self.mover is None or self.organize_root != org:
+            self.organize_root = org
+            self.mover = Mover(organize_root=org, queue_manager=self.qm)
         if self.qm.count(status=ActionStatus.APPROVED) == 0:
             self._toast("No approved items to move"); return
         self._toast(f"Moving {self.qm.count(status=ActionStatus.APPROVED)} file(s)...")
